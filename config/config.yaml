@@ -1,0 +1,7 @@
+ten_newsgroups_classes: ['business', 'entertainment', 'food', 'graphics', 'historical', 'medical', 'politics', 'space', 'sport', 'technologie']
+bbcsport_classes: ['athletics', 'cricket', 'football', 'rugby', 'tennis']
+example_classes: ['example_class']
+
+ten_newsgroups_data_prefix: 'data/ten_newsgroups_graphs'
+bbcsport_data_prefix: 'data/bbcsport_graphs'
+example_data_prefix: 'data/example_graphs'

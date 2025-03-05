@@ -1,0 +1,13 @@
+[{
+"NodesCount":7,"ArcsCount":9,"Top":[0],"Bottom":[3,5,6],
+"Params":{"Type":"ContextProcessorModules","Name":"SofiaContextProcessorModule","Params":{"Thld":1.0,"MaxPatternNumber":10000,"AdjustThreshold":true,"FindPartialOrder":true,"OutputParams":{"OutExtent":true,"OutIntent":true},"ProjectionChain":{"Type":"ProjectionChainModules","Name":"StabClsPatternProjectionChainModule","Params":{"ImageReserve":1000,"Enumerator":{"Type":"PatternEnumeratorModules","Name":"ParallelPatternEnumeratorModule","Params":{"PatternEnumeratorByCallback":{"Type":"PatternEnumeratorModules","Name":"GastonGraphPatternEnumeratorModule","Params":{"LibPath":"libGaston.so","InputPath":"../../../../LibGastonForSofia/sample-data/example_class_train_gsofia","RemoveInput":false,"PatternPath":"example_class_patterns.OUT","MinSupport":2,"MaxGraphSize":-1,"GastonMode":"Full"}}}}}}}}
+},{"Nodes":[
+  {"Ext":{"Count":3,"Inds":[0,1,2]},"Int":{"GraphCount":2,"MinGraphSupport":3},"Interest":1},
+  {"Ext":{"Count":2,"Inds":[1,2]},"Int":{"GraphCount":6,"MinGraphSupport":2},"Interest":1},
+  {"Ext":{"Count":2,"Inds":[0,2]},"Int":{"GraphCount":4,"MinGraphSupport":2},"Interest":1},
+  {"Ext":{"Count":1,"Inds":[2]},"Int":{"GraphCount":8,"MinGraphSupport":2},"Interest":1},
+  {"Ext":{"Count":2,"Inds":[0,1]},"Int":{"GraphCount":3,"MinGraphSupport":2},"Interest":1},
+  {"Ext":{"Count":1,"Inds":[1]},"Int":{"GraphCount":7,"MinGraphSupport":2},"Interest":1},
+  {"Ext":{"Count":1,"Inds":[0]},"Int":{"GraphCount":5,"MinGraphSupport":2},"Interest":1}
+]},{"Arcs":[
+  {"S":0,"D":1},  {"S":0,"D":2},  {"S":2,"D":3},  {"S":1,"D":3},  {"S":0,"D":4},  {"S":4,"D":5},  {"S":1,"D":5},  {"S":4,"D":6},  {"S":2,"D":6}]}]

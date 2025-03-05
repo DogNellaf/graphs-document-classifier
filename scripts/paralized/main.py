@@ -9,9 +9,9 @@ from os.path import join
 
 from utils import get_project_root
 from results_aggregator import construct_results_dataframe
-from graph_pattern_reconstruction import graph_pattern_reconstruction_iterator
-from graph_pattern_weighting import graph_pattern_weighting_iterator
-from graph_pattern_scoring import graph_pattern_scoring_iterator
+from graph_pattern_reconstruction import reconstruct_graph_pattern
+from graph_pattern_weighting import weight_graph_pattern
+from graph_pattern_scoring import score_graph_pattern
 from graph_pattern_visualize import graph_pattern_visualize_iterator
 
 ray.init()
@@ -34,13 +34,13 @@ def do_operations(root, config, dataset='all', mode='concepts', weighting='yes',
             print("Reconstructing graph patterns...")
             futures.extend(
                 [
-                    graph_pattern_reconstruction_iterator.remote(
+                    reconstruct_graph_pattern.remote(
                         config['ten_newsgroups_classes'],
                         join(str(root), config['ten_newsgroups_data_prefix']),
                         mode
                     ),
 
-                    graph_pattern_reconstruction_iterator.remote(
+                    reconstruct_graph_pattern.remote(
                         config['bbcsport_classes'],
                         join(str(root), config['bbcsport_data_prefix']),
                         mode
@@ -52,14 +52,14 @@ def do_operations(root, config, dataset='all', mode='concepts', weighting='yes',
             print("Weighting graph patterns...")
             futures.extend(
                 [
-                    graph_pattern_weighting_iterator.remote(
+                    weight_graph_pattern.remote(
                         'ten_newsgroups',
                         config['ten_newsgroups_classes'],
                         join(str(root), config['ten_newsgroups_data_prefix']),
                         mode
                     ),
 
-                    graph_pattern_weighting_iterator.remote(
+                    weight_graph_pattern.remote(
                         'bbcsport',
                         config['bbcsport_classes'],
                         join(str(root), config['bbcsport_data_prefix']),
@@ -71,14 +71,14 @@ def do_operations(root, config, dataset='all', mode='concepts', weighting='yes',
         ray.get(futures)
 
         futures = [
-            graph_pattern_scoring_iterator.remote(
+            score_graph_pattern.remote(
                 'ten_newsgroups',
                 config['ten_newsgroups_classes'],
                 join(str(root), config['ten_newsgroups_data_prefix']),
                 mode
             ),
 
-            graph_pattern_scoring_iterator.remote(
+            score_graph_pattern.remote(
                 'bbcsport',
                 config['bbcsport_classes'],
                 join(str(root), config['bbcsport_data_prefix']),
@@ -100,7 +100,7 @@ def do_operations(root, config, dataset='all', mode='concepts', weighting='yes',
                 'bbcsport_results.pickle',
                 config['bbcsport_data_prefix'],
                 bbcsport_results
-            ),            
+            )
         ]
 
         ray.get(futures)
@@ -108,8 +108,17 @@ def do_operations(root, config, dataset='all', mode='concepts', weighting='yes',
         construct_results_dataframe(str(root), config)
 
     if visualization == 'yes':
-        graph_pattern_reconstruction_iterator(config['example_classes'], str(root) + '/' + config['example_data_prefix'], mode)
-        graph_pattern_visualize_iterator(config['example_classes'], str(root) + '/' + config['example_data_prefix'], mode)
+        reconstruct_graph_pattern(
+            config['example_classes'],
+            join(str(root), config['example_data_prefix']),
+            mode
+        )
+
+        graph_pattern_visualize_iterator(
+            config['example_classes'],
+            join(str(root), config['example_data_prefix']),
+            mode
+        )
     
     construct_results_dataframe(root, config)
 
@@ -118,37 +127,64 @@ if __name__ == '__main__':
 
     parser = ArgumentParser(description='Main script', formatter_class=ArgumentDefaultsHelpFormatter)
 
-    parser.add_argument('--config', type=Path, default=root/'config/config.yaml',
-                        help='Enter the config file path.')
+    parser.add_argument(
+        '--config',
+        type=Path,
+        default=root/'config/config.yaml',
+        help='Enter the config file path.'
+    )
 
-    parser.add_argument('--dataset', type=str, default='all', choices=['all', 'ten_newsgroups', 'bbcsport'],
-                        help='Choose the dataset.')
+    parser.add_argument(
+        '--dataset',
+        type=str,
+        default='all',
+        choices=['all', 'ten_newsgroups', 'bbcsport'],
+        help='Choose the dataset.'
+    )
 
-    parser.add_argument('--mode', type=str, default='all',
-                        choices=['all', 'concepts', 'frequent_subgraphs', 'equivalence_classes'],
-                        help='Choose the operation mode.')
+    parser.add_argument(
+        '--mode',
+        type=str,
+        default='all',
+        choices=['all', 'concepts', 'frequent_subgraphs', 'equivalence_classes'],
+        help='Choose the operation mode.'
+    )
 
-    parser.add_argument('--weighting', type=str, default='yes',
-                        choices=['yes', 'no'],
-                        help='Choose whether to weight graph patterns.')
+    parser.add_argument(
+        '--weighting',
+        type=str,
+        default='yes',
+        choices=['yes', 'no'],
+        help='Choose whether to weight graph patterns.'
+    )
 
-    parser.add_argument('--graph_pattern_reconstruction', type=str, default='yes',
-                        choices=['yes', 'no'],
-                        help='Choose whether to reconstruct graph patterns.')
+    parser.add_argument(
+        '--graph_pattern_reconstruction',
+        type=str,
+        default='yes',
+        choices=['yes', 'no'],
+        help='Choose whether to reconstruct graph patterns.'
+    )
 
-    parser.add_argument('--visualization', type=str, default='no',
-                        choices=['yes', 'no'],
-                        help='Choose whether to visualize graph patterns reconstruction using a toy example.')
+    parser.add_argument(
+        '--visualization',
+        type=str,
+        default='no',
+        choices=['yes', 'no'],
+        help='Choose whether to visualize graph patterns reconstruction using a toy example.'
+    )
 
     args, unknown = parser.parse_known_args()
 
     with args.config.open() as y:
         config = yaml.load(y, Loader=yaml.FullLoader)
 
-    do_operations(root=root,
-                  config=config,
-                  dataset=args.dataset,
-                  mode=args.mode,
-                  weighting=args.weighting,
-                  graph_pattern_reconstruction=args.graph_pattern_reconstruction,
-                  visualization=args.visualization)
+    do_operations(
+        root=root,
+        config=config,
+        dataset=args.dataset,
+        mode=args.mode,
+        weighting=args.weighting,
+        graph_pattern_reconstruction=args.graph_pattern_reconstruction,
+        visualization=args.visualization
+    )

@@ -120,7 +120,7 @@ def graph_pattern_classification(dataset, classes, prefix, mode):
     return results
 
 @ray.remote
-def graph_pattern_scoring_iterator(dataset, classes, prefix, mode):
+def score_graph_pattern(dataset, classes, prefix, mode):
 
     if mode == 'all':
         concepts_results = graph_pattern_classification(dataset, classes, prefix, 'concepts')

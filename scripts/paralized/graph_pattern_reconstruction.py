@@ -8,6 +8,8 @@ from itertools import groupby
 
 import base_functions as bf
 
+import ray
+
 def frequent_subgraphs_builder(class_name, prefix):
     frequent_subgraphs = []
     frequent_subgraph_ele = {}
@@ -194,7 +196,7 @@ def equivalence_classes_builder(class_name, prefix):
 
     shutil.move(equivalence_classes_file_name, equivalence_classes_path)
 
-
+@ray.remote
 def graph_pattern_reconstruction_iterator(classes, prefix, mode):
 
     for class_name in classes:

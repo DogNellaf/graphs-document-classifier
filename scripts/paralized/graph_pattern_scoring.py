@@ -3,6 +3,7 @@ import re
 import copy
 import pickle
 import pandas as pd
+import ray
 import networkx as nx
 
 from itertools import chain
@@ -118,7 +119,7 @@ def graph_pattern_classification(dataset, classes, prefix, mode):
 
     return results
 
-
+@ray.remote
 def graph_pattern_scoring_iterator(dataset, classes, prefix, mode):
 
     if mode == 'all':

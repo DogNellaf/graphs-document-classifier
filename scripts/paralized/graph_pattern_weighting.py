@@ -3,6 +3,7 @@ import copy
 import pickle
 import shutil
 import networkx as nx
+import ray
 
 import base_functions as bf
 
@@ -106,7 +107,7 @@ def graph_pattern_weight_calculation(dataset, classes, prefix, mode):
 
     shutil.move(edge_penalties_file_name, edge_penalties_path)
 
-
+@ray.remote
 def graph_pattern_weighting_iterator(dataset, classes, prefix, mode):
 
     if mode == 'all':

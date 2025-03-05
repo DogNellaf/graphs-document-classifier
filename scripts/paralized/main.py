@@ -1,8 +1,11 @@
+import ray
 import yaml
 import pickle
 import shutil
 from pathlib import Path
 from argparse import ArgumentParser, ArgumentDefaultsHelpFormatter
+
+from os.path import join
 
 from utils import get_project_root
 from results_aggregator import construct_results_dataframe
@@ -11,44 +14,104 @@ from graph_pattern_weighting import graph_pattern_weighting_iterator
 from graph_pattern_scoring import graph_pattern_scoring_iterator
 from graph_pattern_visualize import graph_pattern_visualize_iterator
 
+ray.init()
+
+def save_result(root, filename, dir, results):
+
+    filename = 'ten_newsgroups_results.pickle'
+
+    with open(filename, 'wb') as handle:
+        pickle.dump(results, handle, protocol=pickle.HIGHEST_PROTOCOL)
+
+    ten_newsgroups_results_path = join(str(root), dir, filename)
+    shutil.move(filename, ten_newsgroups_results_path)
 
 def do_operations(root, config, dataset='all', mode='concepts', weighting='yes', graph_pattern_reconstruction='yes', visualization='no'):
 
+    futures = []
     if dataset == 'all':
         if graph_pattern_reconstruction == 'yes':
             print("Reconstructing graph patterns...")
-            graph_pattern_reconstruction_iterator(config['ten_newsgroups_classes'], str(root) + '/' + config['ten_newsgroups_data_prefix'], mode)
-            graph_pattern_reconstruction_iterator(config['bbcsport_classes'], str(root) + '/' + config['bbcsport_data_prefix'], mode)
+            futures.extend(
+                [
+                    graph_pattern_reconstruction_iterator.remote(
+                        config['ten_newsgroups_classes'],
+                        join(str(root), config['ten_newsgroups_data_prefix']),
+                        mode
+                    ),
+
+                    graph_pattern_reconstruction_iterator.remote(
+                        config['bbcsport_classes'],
+                        join(str(root), config['bbcsport_data_prefix']),
+                        mode
+                    )
+                ]
+            )
 
         if weighting == 'yes':
             print("Weighting graph patterns...")
-            graph_pattern_weighting_iterator('ten_newsgroups', config['ten_newsgroups_classes'], str(root) + '/' + config['ten_newsgroups_data_prefix'], mode)
-            graph_pattern_weighting_iterator('bbcsport', config['bbcsport_classes'], str(root) + '/' + config['bbcsport_data_prefix'], mode)
+            futures.extend(
+                [
+                    graph_pattern_weighting_iterator.remote(
+                        'ten_newsgroups',
+                        config['ten_newsgroups_classes'],
+                        join(str(root), config['ten_newsgroups_data_prefix']),
+                        mode
+                    ),
 
-        ten_newsgroups_results = graph_pattern_scoring_iterator('ten_newsgroups', config['ten_newsgroups_classes'], str(root) + '/' + config['ten_newsgroups_data_prefix'], mode)
-        bbcsport_results = graph_pattern_scoring_iterator('bbcsport', config['bbcsport_classes'], str(root) + '/' + config['bbcsport_data_prefix'], mode)
+                    graph_pattern_weighting_iterator.remote(
+                        'bbcsport',
+                        config['bbcsport_classes'],
+                        join(str(root), config['bbcsport_data_prefix']),
+                        mode
+                    )
+                ]
+            )
 
-        ten_newsgroups_results_file_name = 'ten_newsgroups_results.pickle'
-        bbcsport_results_file_name = 'bbcsport_results.pickle'
+        ray.get(futures)
 
-        with open(ten_newsgroups_results_file_name, 'wb') as handle:
-            pickle.dump(ten_newsgroups_results, handle, protocol=pickle.HIGHEST_PROTOCOL)
+        futures = [
+            graph_pattern_scoring_iterator.remote(
+                'ten_newsgroups',
+                config['ten_newsgroups_classes'],
+                join(str(root), config['ten_newsgroups_data_prefix']),
+                mode
+            ),
 
-        ten_newsgroups_results_path = str(root) + '/' + config['ten_newsgroups_data_prefix'] + '/' + ten_newsgroups_results_file_name
-        shutil.move(ten_newsgroups_results_file_name, ten_newsgroups_results_path)
+            graph_pattern_scoring_iterator.remote(
+                'bbcsport',
+                config['bbcsport_classes'],
+                join(str(root), config['bbcsport_data_prefix']),
+                mode
+            )
+        ]
 
-        with open(bbcsport_results_file_name, 'wb') as handle:
-            pickle.dump(bbcsport_results, handle, protocol=pickle.HIGHEST_PROTOCOL)
+        ten_newsgroups_results, bbcsport_results = ray.get(futures)
 
-        bbcsport_results_path = str(root) + '/' + config['bbcsport_data_prefix'] + '/' + bbcsport_results_file_name
-        shutil.move(bbcsport_results_file_name, bbcsport_results_path)
+        futures = [
+            save_result(
+                root,
+                'ten_newsgroups_results.pickle',
+                config['ten_newsgroups_data_prefix'],
+                ten_newsgroups_results
+            ),
+            save_result(
+                root,
+                'bbcsport_results.pickle',
+                config['bbcsport_data_prefix'],
+                bbcsport_results
+            ),            
+        ]
+
+        ray.get(futures)
 
         construct_results_dataframe(str(root), config)
 
     if visualization == 'yes':
         graph_pattern_reconstruction_iterator(config['example_classes'], str(root) + '/' + config['example_data_prefix'], mode)
         graph_pattern_visualize_iterator(config['example_classes'], str(root) + '/' + config['example_data_prefix'], mode)
-
+    
+    construct_results_dataframe(root, config)
 
 if __name__ == '__main__':
     root = get_project_root()

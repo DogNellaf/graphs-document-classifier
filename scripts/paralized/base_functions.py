@@ -44,7 +44,9 @@ def find_maximal_degree(subgraphs):
     maximal_degree = 0
 
     for subgraph in subgraphs:
-        if int(sorted(subgraph.degree, key=lambda x: x[1], reverse=True)[0][1]) > maximal_degree:
-            maximal_degree = int(sorted(subgraph.degree, key=lambda x: x[1], reverse=True)[0][1])
+        sorted_subgraphs = sorted(subgraph.degree, key=lambda x: x[1], reverse=True)
+        if len(sorted_subgraphs) > 0:
+            if int(sorted_subgraphs[0][1]) > maximal_degree:
+                maximal_degree = int(sorted(subgraph.degree, key=lambda x: x[1], reverse=True)[0][1])
 
     return maximal_degree

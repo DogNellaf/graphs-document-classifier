@@ -13,26 +13,26 @@ def save_latex_table(df: pd.DataFrame, file_path: str, column_format=None, float
         f.write(text)
 
 
-def construct_results_dataframe(root, scores, config):
+def construct_results_dataframe(root, config):
 
-    # datasets = ['ten_newsgroups', 'bbcsport']
+    datasets = ['ten_newsgroups', 'bbcsport']
 
-    # results = []
+    results = []
 
-    # for dataset in datasets:
-    #     dataset_prefix_key = dataset + '_data_prefix'
-    #     dataset_results_file_name = str(root) + '/' + config[dataset_prefix_key] + '/' + dataset + '_results.pickle'
+    for dataset in datasets:
+        dataset_prefix_key = dataset + '_data_prefix'
+        dataset_results_file_name = str(root) + '/' + config[dataset_prefix_key] + '/' + dataset + '_results.pickle'
 
-    #     with open(dataset_results_file_name, 'rb') as f:
-    #         dataset_results = pickle.load(f)
+        with open(dataset_results_file_name, 'rb') as f:
+            dataset_results = pickle.load(f)
 
-    #     for dr_ele in dataset_results:
-    #         results.append(dr_ele)
+        for dr_ele in dataset_results:
+            results.append(dr_ele)
 
-    # results.sort(key=lambda x: x['mode'])
+    results.sort(key=lambda x: x['mode'])
 
-    for _, (_, elements) in enumerate(groupby(scores, key=lambda x: x['mode'])):
-        elements = list(elements)
+    for i, (k, v) in enumerate(groupby(results, key=lambda x: x['mode'])):
+        v = list(v)
 
         dataset_column = []
         baseline_penalty_column = []
@@ -43,28 +43,21 @@ def construct_results_dataframe(root, scores, config):
         penalty_5_column = []
         penalty_6_column = []
 
-        for element in elements:
-            dataset_column.append(element['dataset'])
-            baseline_penalty_column.append(element['baseline_penalty_macro-averaged_f1-score'])
-            penalty_1_column.append(element['penalty_1_macro-averaged_f1-score'])
-            penalty_2_column.append(element['penalty_2_macro-averaged_f1-score'])
-            penalty_3_column.append(element['penalty_3_macro-averaged_f1-score'])
-            penalty_4_column.append(element['edge_penalty_macro-averaged_f1-score'])
-            penalty_5_column.append(element['penalty_5_macro-averaged_f1-score'])
-            penalty_6_column.append(element['penalty_6_macro-averaged_f1-score'])
+        for ele in v:
+            dataset_column.append(ele['dataset'])
+            baseline_penalty_column.append(ele['baseline_penalty_macro-averaged_f1-score'])
+            penalty_1_column.append(ele['penalty_1_macro-averaged_f1-score'])
+            penalty_2_column.append(ele['penalty_2_macro-averaged_f1-score'])
+            penalty_3_column.append(ele['penalty_3_macro-averaged_f1-score'])
+            penalty_4_column.append(ele['edge_penalty_macro-averaged_f1-score'])
+            penalty_5_column.append(ele['penalty_5_macro-averaged_f1-score'])
+            penalty_6_column.append(ele['penalty_6_macro-averaged_f1-score'])
 
-        data = {
-            'Dataset': dataset_column,
-            'Baseline penalty': baseline_penalty_column,
-            'Penalty 1': penalty_1_column,
-            'Penalty 2': penalty_2_column,
-            'Penalty 3': penalty_3_column,
-            'Penalty 4': penalty_4_column,
-            'Penalty 5': penalty_5_column,
-            'Penalty 6': penalty_6_column
-        }
+        d = {'Dataset': dataset_column, 'Baseline penalty': baseline_penalty_column, 'Penalty 1': penalty_1_column,
+             'Penalty 2': penalty_2_column, 'Penalty 3': penalty_3_column, 'Penalty 4': penalty_4_column,
+             'Penalty 5': penalty_5_column, 'Penalty 6': penalty_6_column}
 
-        df = pd.DataFrame(data=data)
-        latex_table_path = str(root) + '/' + elements[0]['mode'] + '.tex'
+        df = pd.DataFrame(data=d)
+        latex_table_path = str(root) + '/' + v[0]['mode'] + '.tex'
 
         save_latex_table(df, latex_table_path)

@@ -1,197 +1,142 @@
 import os
+import re
+import copy
 import pickle
+import pandas as pd
 import networkx as nx
-import ray
 
-from os.path import join
+from itertools import chain
+from sklearn.metrics import classification_report
 
 import base_functions as bf
 
+def edge_penalty_calculation(subgraphs, edge_penalties):
+    edge_penalty = 0
 
-@ray.remote
-def penalty_calculation(graph_pattern, graphs):
-    graph_pattern_penalty_1 = 0
-    graph_pattern_penalty_2 = 0
-    graph_pattern_penalty_3 = 0
-    graph_pattern_penalty_5 = 0
-    graph_pattern_penalty_6 = 0
+    for subgraph in subgraphs:
+        for node1, node2, data in subgraph.edges(data=True):
+            edge_penalty += edge_penalties[(node1, node2, data['label'])]
 
-    futures = []
-    for graph in graphs:
-        futures.append(
-            calculate_individual_penalty.remote(graph_pattern, graph)
-        )
-
-    # Собираем все результаты параллельно
-    results = ray.get(futures)
-
-    # Суммируем все результаты
-    for res in results:
-        graph_pattern_penalty_1 += res[0]
-        graph_pattern_penalty_2 += res[1]
-        graph_pattern_penalty_3 += res[2]
-        graph_pattern_penalty_5 += res[3]
-        graph_pattern_penalty_6 += res[4]
-
-    return (
-        graph_pattern_penalty_1,
-        graph_pattern_penalty_2,
-        graph_pattern_penalty_3,
-        graph_pattern_penalty_5,
-        graph_pattern_penalty_6
-    )
-
-@ray.remote
-def calculate_individual_penalty(graph_pattern, graph):
-    multiple_subsumption = bf.multiple_subsumption_check(graph, graph_pattern['subgraphs'])
-
-    penalty_1 = penalty_2 = penalty_3 = penalty_5 = penalty_6 = 0
-
-    if multiple_subsumption == 1 and len(graph_pattern['subgraphs']) != 0:
-
-        penalty_1 = bf.find_size(graph_pattern['subgraphs'])
-
-        penalty_2 = 1 / len(graph.nodes())
-
-        penalty_3 = 1 / abs(
-            bf.find_maximal_degree(graph_pattern['subgraphs']) - bf.find_maximal_degree([graph])
-        )
-
-        penalty_5 = 1
-
-        penalty_6 = len(graph_pattern['subgraphs'])
-
-    return penalty_1, penalty_2, penalty_3, penalty_5, penalty_6
+    return edge_penalty
 
 
-@ray.remote
-def load_graph(graph_file_name):
-    return nx.read_gml(graph_file_name)
+def flatten_chain(matrix):
+    return list(chain.from_iterable(matrix))
 
 
-@ray.remote
-def save_pickle(path, data):
-    with open(path, 'wb') as handle:
-        pickle.dump(data, handle, protocol=pickle.HIGHEST_PROTOCOL)
+def graph_pattern_scoring(weighted_class_graph_patterns, edge_penalties, classes, prefix, penalty):
+
+    column = []
+
+    for class_name in classes:
+        graph_data_prefix = prefix + '/' + class_name
+        graph_file_names = [os.path.join(graph_data_prefix, graph_file_name) for graph_file_name in os.listdir(graph_data_prefix) if '_test_' in graph_file_name and graph_file_name.endswith('.gml')]
+        graph_file_names.sort()
+
+        graphs = [nx.read_gml(graph_file_name_temp) for graph_file_name_temp in graph_file_names]
+
+        for graph in graphs:
+            score = 0
+            weighted_class_graph_pattern_counter = 0
+
+            for weighted_class_graph_pattern in weighted_class_graph_patterns:
+                weighted_class_graph_pattern_counter += 1
+
+                multiple_subsumption = bf.multiple_subsumption_check(graph, weighted_class_graph_pattern['subgraphs'])
+
+                if multiple_subsumption == 1:
+                    weighted_class_graph_pattern_weight = bf.find_graph_pattern_weight(weighted_class_graph_pattern)
+
+                    if penalty == 'edge_penalty':
+                        weighted_class_graph_pattern_edge_penalty = edge_penalty_calculation(weighted_class_graph_pattern['subgraphs'], edge_penalties)
+
+                        if weighted_class_graph_pattern_edge_penalty == 0:
+                            score += (weighted_class_graph_pattern_weight / 1)
+
+                        else:
+                            score += (weighted_class_graph_pattern_weight / weighted_class_graph_pattern_edge_penalty)
+
+                    else:
+
+                        if weighted_class_graph_pattern[f'{penalty}'] == 0:
+                            score += (weighted_class_graph_pattern_weight / 1)
+
+                        else:
+                            score += (weighted_class_graph_pattern_weight / weighted_class_graph_pattern[f'{penalty}'])
+
+            column.append(copy.deepcopy(score / weighted_class_graph_pattern_counter))
+    return column
 
 
-@ray.remote
-def process_graph_pattern(graph_pattern, graphs):
-    penalty_1, penalty_2, penalty_3, penalty_5, penalty_6 = ray.get(
-        penalty_calculation.remote(graph_pattern, graphs)
-    )
+def graph_pattern_classification(dataset, classes, prefix, mode):
+    results = {'dataset': dataset, 'mode': mode}
 
-    return {
-        'id': graph_pattern['id'],
-        'supports': graph_pattern['supports'],
-        'subgraphs': graph_pattern['subgraphs'],
-        'extent': graph_pattern['extent'],
-        'baseline_penalty': 1,
-        'penalty_1': penalty_1,
-        'penalty_2': penalty_2,
-        'penalty_3': penalty_3,
-        'penalty_5': len(graph_pattern['extent']),
-        'penalty_6': penalty_6,
-    }
+    penalties = ['baseline_penalty', 'penalty_1', 'penalty_2', 'penalty_3', 'edge_penalty', 'penalty_5', 'penalty_6']
 
-@ray.remote
-def process_graph_class(weighted_graph_patterns, edge_penalties, classes, prefix, mode, class_name):
-    graph_data_prefix = join(prefix, class_name)
-    graph_filenames = [
-        join(graph_data_prefix, filename)
-        for filename in os.listdir(graph_data_prefix)
-        if '_train_' in filename and filename.endswith('.gml')
-    ]
+    edge_penalties_file_name = dataset + '_' + mode + '_edge_penalties.pickle'
+    edge_penalties_path = prefix + '/' + edge_penalties_file_name
 
-    # Параллельная загрузка всех графов
-    graph_futures = [load_graph.remote(fname) for fname in graph_filenames]
-    graphs = ray.get(graph_futures)
+    with open(edge_penalties_path, 'rb') as f:
+        edge_penalties = pickle.load(f)
 
-    negative_classes = [cls for cls in classes if cls != class_name]
+    for penalty in penalties:
 
-    for negative_class_name in negative_classes:
-        filename = f"{negative_class_name}_{mode}.pickle"
-        graph_patterns_file_name = join(prefix, negative_class_name, filename)
+        d = {}
+        y_true = []
+        index_list = []
 
-        with open(graph_patterns_file_name, 'rb') as f:
-            graph_patterns = pickle.load(f)
+        for class_name in classes:
+            weighted_class_graph_patterns_file_name = prefix + '/' + class_name + '/' + class_name + '_weighted_' + mode + '.pickle'
 
-        # Параллельная обработка паттернов графов
-        pattern_futures = [
-            process_graph_pattern.remote(graph_pattern, graphs)
-            for graph_pattern in graph_patterns
-        ]
+            with open(weighted_class_graph_patterns_file_name, 'rb') as f:
+                weighted_class_graph_patterns = pickle.load(f)
 
-        weighted_patterns = ray.get(pattern_futures)
-        weighted_graph_patterns.extend(weighted_patterns)
+            d[class_name] = graph_pattern_scoring(weighted_class_graph_patterns, edge_penalties, classes, prefix, penalty)
 
-        # Параллельное обновление edge_penalties
-        edge_updates = ray.get([
-            update_edge_penalties.remote(graph_pattern, edge_penalties)
-            for graph_pattern in graph_patterns
-        ])
+        for class_name in classes:
+            string_pattern = fr"{class_name}_test_graph_([0-9])*"
 
-        for update in edge_updates:
-            edge_penalties.update(update)
+            graph_data_prefix = prefix + '/' + class_name
+            graph_file_names = [os.path.join(graph_data_prefix, graph_file_name) for graph_file_name in os.listdir(graph_data_prefix) if '_test_' in graph_file_name and graph_file_name.endswith('.gml')]
+            graph_file_names.sort()
 
-    print(f"Class {class_name} training graphs finished.")
+            index_list.append([re.search(string_pattern, graph_file_name_temp).group() for graph_file_name_temp in graph_file_names])
 
-@ray.remote
-def update_edge_penalties(gp, edge_penalties):
-    return {
-        (node1, node2, data['label']):
-        edge_penalties.get((node1, node2, data['label']), 0) + 1
-        for subgraph in gp['subgraphs']
-        for node1, node2, data in subgraph.edges(data=True)
-    }
+            for j in range(len(graph_file_names)):
+                y_true.append(copy.deepcopy(class_name))
 
-def graph_pattern_score_calculation(dataset, classes, prefix, mode):
-    weighted_graph_patterns = []
-    edge_penalties = {}
+        index_list_2 = flatten_chain(index_list)
 
-    # Параллельная обработка классов
-    futures = [
-        process_graph_class.remote(
-            weighted_graph_patterns,
-            edge_penalties,
-            classes,
-            prefix,
-            mode,
-            class_name
-        )
-        for class_name in classes
-    ]
+        classification_df = pd.DataFrame(data=d, index=index_list_2)
 
-    ray.get(futures)
+        max_value_index = classification_df.idxmax(axis="columns")
 
-    save_weighted_patterns(dataset, classes, prefix, mode, weighted_graph_patterns, edge_penalties)
+        y_pred = max_value_index.to_list()
 
+        cr = classification_report(y_true=y_true, y_pred=y_pred, target_names=classes, output_dict=True)
+        results[f'{penalty}_macro-averaged_f1-score'] = cr['macro avg']['f1-score']
 
-def save_weighted_patterns(dataset, classes, prefix, mode, weighted_graph_patterns, edge_penalties):
-    # Параллельное сохранение данных
-    save_futures = [
-        save_pickle.remote(
-            join(prefix, class_name, f"{class_name}_weighted_{mode}.pickle"),
-            [
-                graph_pattern
-                for graph_pattern
-                in weighted_graph_patterns
-                if class_name in graph_pattern['id']
-            ]
-        )
-        for class_name in classes
-    ]
+    return results
 
-    save_futures.append(save_pickle.remote(
-        join(prefix, f"{dataset}_{mode}_edge_penalties.pickle"),
-        edge_penalties
-    ))
-
-    ray.get(save_futures)
 
 def graph_pattern_scoring_iterator(dataset, classes, prefix, mode):
+
     if mode == 'all':
-        for m in ['concepts', 'equivalence_classes', 'frequent_subgraphs']:
-            graph_pattern_score_calculation(dataset, classes, prefix, m)
+        concepts_results = graph_pattern_classification(dataset, classes, prefix, 'concepts')
+        print(f"Scoring for {dataset} for concepts done.")
+        print(concepts_results)
+
+        equivalence_classes_results = graph_pattern_classification(dataset, classes, prefix, 'equivalence_classes')
+        print(f"Scoring for {dataset} for equivalence classes done.")
+        print(equivalence_classes_results)
+
+        frequent_subgraphs_results = graph_pattern_classification(dataset, classes, prefix, 'frequent_subgraphs')
+        print(f"Scoring for {dataset} for frequent subgraphs done.")
+        print(frequent_subgraphs_results)
+
+        results = [concepts_results, equivalence_classes_results, frequent_subgraphs_results]
+
     else:
-        graph_pattern_score_calculation(dataset, classes, prefix, mode)
+        results = graph_pattern_classification(dataset, classes, prefix, mode)
+
+    return results

@@ -1,22 +1,10 @@
-from os.path import join
-
 import shutil
 import pickle
 import networkx as nx
 
 
-def draw_graph(graph, graph_name):
-    """
-    Draw graph
-
-    Args:
-        graph (NetworkX graph): Graph to draw
-        graph_name (str): Graph name
-
-    Returns:
-        str: New graph name
-    """
-    dot_graph = nx.nx_agraph.to_agraph(graph)
+def draw_graph(g, graph_name):
+    dot_graph = nx.nx_agraph.to_agraph(g)
     dot_graph.layout(prog="dot")
     new_graph_name = str(graph_name) + '.png'
     dot_graph.draw(new_graph_name)
@@ -25,81 +13,62 @@ def draw_graph(graph, graph_name):
 
 
 def concepts_iterator(class_name, prefix):
+    concepts_file_name = prefix + '/' + class_name + '/' + class_name + '_concepts.pickle'
 
-    path = join(prefix, class_name, f'{class_name}_concepts.pickle')
-    with open(path, 'rb') as f:
+    with open(concepts_file_name, 'rb') as f:
         concepts = pickle.load(f)
 
-    for k, concept in enumerate(concepts):
-        print(f"Concept {concept['id']}")
-        for s, subgraph in enumerate(concepts[k]['subgraphs']):
-            supports = concepts[k]['supports'][s]
-
+    for k in range(len(concepts)):
+        print(f"Concept {concepts[k]['id']}")
+        for s in range(len(concepts[k]['subgraphs'])):
             subgraph_name = concepts[k]['id'] + '_subgraph_' + str(s)
-            print(f"Subgraph {subgraph_name} support:{supports}")
-            new_subgraph_name = draw_graph(subgraph, subgraph_name)
+            print(f"Subgraph {subgraph_name} support:{concepts[k]['supports'][s]}")
+            new_subgraph_name = draw_graph(concepts[k]['subgraphs'][s], subgraph_name)
 
-            path = join(prefix, class_name, 'visualizations', new_subgraph_name)
-            shutil.move(new_subgraph_name, path)
+            subgraph_path = prefix + '/' + class_name + '/' + 'visualizations' + '/' + new_subgraph_name
+            shutil.move(new_subgraph_name, subgraph_path)
 
 
 def equivalence_classes_iterator(class_name, prefix):
+    equivalence_classes_file_name = prefix + '/' + class_name + '/' + class_name + '_equivalence_classes.pickle'
 
-    path = join(prefix, class_name, f'{class_name}_equivalence_classes.pickle')
-    with open(path, 'rb') as f:
+    with open(equivalence_classes_file_name, 'rb') as f:
         equivalence_classes = pickle.load(f)
 
-    for _, equivalence_class in enumerate(equivalence_classes):
-        equivalence_id = equivalence_class['id']
-        extent = equivalence_class['extent']
+    for k in range(len(equivalence_classes)):
+        print(f"Equivalence class {equivalence_classes[k]['id']} with extent:{equivalence_classes[k]['extent']}")
+        for s in range(len(equivalence_classes[k]['subgraphs'])):
+            subgraph_name = equivalence_classes[k]['id'] + '_subgraph_' + str(s)
+            print(f"Subgraph {subgraph_name} support:{equivalence_classes[k]['supports'][s]}")
+            new_subgraph_name = draw_graph(equivalence_classes[k]['subgraphs'][s], subgraph_name)
 
-        print(f"Equivalence class {equivalence_id} with extent:{extent}")
-        for s, subgraph in enumerate(equivalence_class['subgraphs']):
-            supports = equivalence_class['supports'][s]
-            subgraph_name = equivalence_id + '_subgraph_' + str(s)
-
-            print(f"Subgraph {subgraph_name} support:{supports}")
-            new_subgraph_name = draw_graph(
-                subgraph,
-                subgraph_name
-            )
-
-            subgraph_path = join(prefix, class_name, 'visualizations', new_subgraph_name)
+            subgraph_path = prefix + '/' + class_name + '/' + 'visualizations' + '/' + new_subgraph_name
             shutil.move(new_subgraph_name, subgraph_path)
 
 
 def frequent_subgraphs_iterator(class_name, prefix):
+    frequent_subgraphs_file_name = prefix + '/' + class_name + '/' + class_name + '_frequent_subgraphs.pickle'
 
-    path = join(prefix, class_name, f'{class_name}_frequent_subgraphs.pickle')
-    with open(path, 'rb') as f:
+    with open(frequent_subgraphs_file_name, 'rb') as f:
         frequent_subgraphs = pickle.load(f)
 
-    for _, frequent_subgraph in enumerate(frequent_subgraphs):
-        frequent_subgraph_id = frequent_subgraph['id']
-        old_frequent_subgraph_name = frequent_subgraph_id
-        first_support = frequent_subgraph['supports'][0]
-        first_subgraph = frequent_subgraph['subgraphs'][0]
+    for k in range(len(frequent_subgraphs)):
+        frequent_subgraph_name = frequent_subgraphs[k]['id']
+        print(f"Frequent subgraph {frequent_subgraphs[k]['id']} has support {frequent_subgraphs[k]['supports'][0]}")
+        new_frequent_subgraph_name = draw_graph(frequent_subgraphs[k]['subgraphs'][0], frequent_subgraph_name)
 
-        print(f"Frequent subgraph {frequent_subgraph_id} has support {first_support}")
-
-        new_frequent_subgraph_name = draw_graph(
-            first_subgraph,
-            old_frequent_subgraph_name
-        )
-
-        path = join(prefix, class_name, 'visualizations', new_frequent_subgraph_name)
-        shutil.move(new_frequent_subgraph_name, path)
+        frequent_graph_path = prefix + '/' + class_name + '/' + 'visualizations' + '/' + new_frequent_subgraph_name
+        shutil.move(new_frequent_subgraph_name, frequent_graph_path)
 
 
 def graph_iterator(class_name, prefix, graph_indices):
     for graph_index in graph_indices:
-        graph_name = join(prefix, class_name, str(graph_index))
-        filename = str(graph_name + '.gml')
-        graph = nx.read_gml(filename)
+        graph_name = prefix + '/' + class_name + '/' + graph_index
+        graph = nx.read_gml(str(graph_name + '.gml'))
         new_graph_name = draw_graph(graph, graph_name)
 
-        path = join(prefix, class_name, 'visualizations', f'{graph_index}.png')
-        shutil.move(new_graph_name, path)
+        graph_path = prefix + '/' + class_name + '/' + 'visualizations' + '/' + graph_index + '.png'
+        shutil.move(new_graph_name, graph_path)
 
 
 def graph_pattern_visualize_iterator(classes, prefix, mode):

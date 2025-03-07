@@ -1,143 +1,213 @@
 import os
 import re
-import copy
+import json
+import logging
 import pickle
+import numpy as np
 import pandas as pd
 import ray
 import networkx as nx
-
+import torch
 from itertools import chain
 from sklearn.metrics import classification_report
-
 import base_functions as bf
 
-def edge_penalty_calculation(subgraphs, edge_penalties):
-    edge_penalty = 0
+# Настройка логирования
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    handlers=[logging.StreamHandler()]
+)
 
-    for subgraph in subgraphs:
-        for node1, node2, data in subgraph.edges(data=True):
-            edge_penalty += edge_penalties[(node1, node2, data['label'])]
+@ray.remote(num_cpus=2)
+def get_test_graphs(prefix, class_name):
+    """Загрузка тестовых графов с валидацией имен файлов"""
+    path = os.path.join(prefix, class_name)
+    if not os.path.isdir(path):
+        logging.error(f"Directory not found: {path}")
+        return []
 
-    return edge_penalty
+    files = []
+    pattern = re.compile(r'_test_graph_(\d+)\.gml$')
+    
+    try:
+        for f in os.listdir(path):
+            full_path = os.path.join(path, f)
+            if os.path.isfile(full_path) and f.endswith('.gml'):
+                match = pattern.match(f)
+                if match:
+                    try:
+                        files.append((int(match.group(1)), full_path))
+                    except ValueError:
+                        logging.warning(f"Invalid file number: {f}")
+    except Exception as e:
+        logging.error(f"Directory read error: {str(e)}")
+        return []
 
+    files.sort(key=lambda x: x[0])
+    return [nx.read_gml(fp) for _, fp in files]
 
-def flatten_chain(matrix):
-    return list(chain.from_iterable(matrix))
+@ray.remote(num_cpus=1)
+def load_weighted_patterns(prefix, class_name, mode):
+    """Загрузка весовых шаблонов"""
+    path = os.path.join(prefix, class_name, f"{class_name}_weighted_{mode}.pickle")
+    try:
+        with open(path, 'rb') as f:
+            return pickle.load(f)
+    except Exception as e:
+        logging.error(f"Pattern load error: {str(e)}")
+        return []
 
+@ray.remote(num_gpus=0.5, max_calls=100)
+def compute_graph_score_batch(graph_batch, patterns, edge_penalties, penalty):
+    """Вычисление оценок для батча графов"""
+    try:
+        device = torch.device('cuda')
+        batch_scores = []
+        
+        preprocessed = []
+        for p in patterns:
+            try:
+                preprocessed.append({
+                    'subgraphs': p['subgraphs'],
+                    'weight': bf.find_graph_pattern_weight(p),
+                    'edges': [list(sg.edges(data=True)) for sg in p['subgraphs']],
+                    'penalty': p.get(penalty, 1.0)
+                })
+            except Exception as e:
+                logging.error(f"Pattern processing error: {str(e)}")
 
-def graph_pattern_scoring(weighted_class_graph_patterns, edge_penalties, classes, prefix, penalty):
-
-    column = []
-
-    for class_name in classes:
-        graph_data_prefix = prefix + '/' + class_name
-        graph_file_names = [os.path.join(graph_data_prefix, graph_file_name) for graph_file_name in os.listdir(graph_data_prefix) if '_test_' in graph_file_name and graph_file_name.endswith('.gml')]
-        graph_file_names.sort()
-
-        graphs = [nx.read_gml(graph_file_name_temp) for graph_file_name_temp in graph_file_names]
-
-        for graph in graphs:
-            score = 0
-            weighted_class_graph_pattern_counter = 0
-
-            for weighted_class_graph_pattern in weighted_class_graph_patterns:
-                weighted_class_graph_pattern_counter += 1
-
-                multiple_subsumption = bf.multiple_subsumption_check(graph, weighted_class_graph_pattern['subgraphs'])
-
-                if multiple_subsumption == 1:
-                    weighted_class_graph_pattern_weight = bf.find_graph_pattern_weight(weighted_class_graph_pattern)
-
+        for graph in graph_batch:
+            valid = []
+            for p in preprocessed:
+                if bf.multiple_subsumption_check(graph, p['subgraphs']):
                     if penalty == 'edge_penalty':
-                        weighted_class_graph_pattern_edge_penalty = edge_penalty_calculation(weighted_class_graph_pattern['subgraphs'], edge_penalties)
-
-                        if weighted_class_graph_pattern_edge_penalty == 0:
-                            score += (weighted_class_graph_pattern_weight / 1)
-
-                        else:
-                            score += (weighted_class_graph_pattern_weight / weighted_class_graph_pattern_edge_penalty)
-
+                        edges = [e for sg in p['edges'] for e in sg]
+                        penalty_val = sum(edge_penalties.get((e[0], e[1], e[2]['label'])), 0)
                     else:
-
-                        if weighted_class_graph_pattern[f'{penalty}'] == 0:
-                            score += (weighted_class_graph_pattern_weight / 1)
-
-                        else:
-                            score += (weighted_class_graph_pattern_weight / weighted_class_graph_pattern[f'{penalty}'])
-
-            column.append(copy.deepcopy(score / weighted_class_graph_pattern_counter))
-    return column
-
-
-def graph_pattern_classification(dataset, classes, prefix, mode):
-    results = {'dataset': dataset, 'mode': mode}
-
-    penalties = ['baseline_penalty', 'penalty_1', 'penalty_2', 'penalty_3', 'edge_penalty', 'penalty_5', 'penalty_6']
-
-    edge_penalties_file_name = dataset + '_' + mode + '_edge_penalties.pickle'
-    edge_penalties_path = prefix + '/' + edge_penalties_file_name
-
-    with open(edge_penalties_path, 'rb') as f:
-        edge_penalties = pickle.load(f)
-
-    for penalty in penalties:
-
-        d = {}
-        y_true = []
-        index_list = []
-
-        for class_name in classes:
-            weighted_class_graph_patterns_file_name = prefix + '/' + class_name + '/' + class_name + '_weighted_' + mode + '.pickle'
-
-            with open(weighted_class_graph_patterns_file_name, 'rb') as f:
-                weighted_class_graph_patterns = pickle.load(f)
-
-            d[class_name] = graph_pattern_scoring(weighted_class_graph_patterns, edge_penalties, classes, prefix, penalty)
-
-        for class_name in classes:
-            string_pattern = fr"{class_name}_test_graph_([0-9])*"
-
-            graph_data_prefix = prefix + '/' + class_name
-            graph_file_names = [os.path.join(graph_data_prefix, graph_file_name) for graph_file_name in os.listdir(graph_data_prefix) if '_test_' in graph_file_name and graph_file_name.endswith('.gml')]
-            graph_file_names.sort()
-
-            index_list.append([re.search(string_pattern, graph_file_name_temp).group() for graph_file_name_temp in graph_file_names])
-
-            for j in range(len(graph_file_names)):
-                y_true.append(copy.deepcopy(class_name))
-
-        index_list_2 = flatten_chain(index_list)
-
-        classification_df = pd.DataFrame(data=d, index=index_list_2)
-
-        max_value_index = classification_df.idxmax(axis="columns")
-
-        y_pred = max_value_index.to_list()
-
-        cr = classification_report(y_true=y_true, y_pred=y_pred, target_names=classes, output_dict=True)
-        results[f'{penalty}_macro-averaged_f1-score'] = cr['macro avg']['f1-score']
-
-    return results
+                        penalty_val = p['penalty']
+                    valid.append((p['weight'], penalty_val))
+            
+            if valid:
+                weights = torch.tensor([v[0] for v in valid], device=device)
+                penalties = torch.tensor([v[1] for v in valid], device=device).clamp(min=1e-6)
+                batch_scores.append((weights / penalties).mean().item())
+            else:
+                batch_scores.append(0.0)
+        
+        return batch_scores
+    except Exception as e:
+        logging.error(f"Compute error: {str(e)}")
+        return [0.0]*len(graph_batch)
 
 @ray.remote
-def score_graph_pattern(dataset, classes, prefix, mode):
+def process_class(class_name, patterns, edge_penalties, penalty, prefix, classes):
+    """Обработка одного класса"""
+    try:
+        all_graphs = []
+        for cls in classes:
+            graphs = ray.get(get_test_graphs.remote(prefix, cls))
+            all_graphs.extend(graphs or [])
+        
+        if not all_graphs:
+            return []
 
-    if mode == 'all':
-        concepts_results = graph_pattern_classification(dataset, classes, prefix, 'concepts')
-        print(f"Scoring for {dataset} for concepts done.")
-        print(concepts_results)
+        batch_size = min(16, len(all_graphs))
+        futures = [
+            compute_graph_score_batch.remote(
+                all_graphs[i:i+batch_size], 
+                patterns, 
+                edge_penalties, 
+                penalty
+            )
+            for i in range(0, len(all_graphs), batch_size)
+        ]
+        
+        return [score for future in futures for score in ray.get(future)]
+    except Exception as e:
+        logging.error(f"Class processing error: {str(e)}")
+        return []
 
-        equivalence_classes_results = graph_pattern_classification(dataset, classes, prefix, 'equivalence_classes')
-        print(f"Scoring for {dataset} for equivalence classes done.")
-        print(equivalence_classes_results)
+@ray.remote
+def process_single_penalty(penalty, dataset, classes, prefix, mode, edge_penalties):
+    """Обработка одного типа штрафа"""
+    try:
+        patterns_data = {
+            cls: ray.get(load_weighted_patterns.remote(prefix, cls, mode))
+            for cls in classes
+        }
 
-        frequent_subgraphs_results = graph_pattern_classification(dataset, classes, prefix, 'frequent_subgraphs')
-        print(f"Scoring for {dataset} for frequent subgraphs done.")
-        print(frequent_subgraphs_results)
+        futures = {
+            cls: process_class.remote(
+                cls, 
+                patterns, 
+                edge_penalties, 
+                penalty, 
+                prefix, 
+                classes
+            )
+            for cls, patterns in patterns_data.items() if patterns
+        }
 
-        results = [concepts_results, equivalence_classes_results, frequent_subgraphs_results]
+        class_scores = {
+            cls: ray.get(future)
+            for cls, future in futures.items()
+        }
 
-    else:
-        results = graph_pattern_classification(dataset, classes, prefix, mode)
+        y_true = []
+        y_pred = []
+        for cls, scores in class_scores.items():
+            y_true.extend([cls]*len(scores))
+            y_pred.extend([cls if s == max(scores) else "" for s in scores])
+        
+        return {
+            f"{penalty}_{mode}_macro-f1": classification_report(
+                y_true, y_pred, 
+                target_names=class_scores.keys(), 
+                output_dict=True
+            )["macro avg"]["f1-score"]
+        }
+    except Exception as e:
+        logging.error(f"Penalty processing error: {str(e)}")
+        return {}
 
-    return results
+@ray.remote(num_gpus=1)
+def score_graph_pattern(dataset, classes, prefix, mode="all"):
+    """Стартовая функция с оригинальными параметрами"""
+    try:
+        results = {}
+
+        penalties = [
+            'baseline_penalty', 'penalty_1', 'penalty_2',
+            'penalty_3', 'edge_penalty', 'penalty_5', 'penalty_6'
+        ]
+
+        if mode == "all":
+            modes = ['concepts', 'equivalence_classes', 'frequent_subgraphs']
+        else:
+            modes = [mode]
+
+        for current_mode in modes:
+            path = os.path.join(prefix, f"{dataset}_{current_mode}_edge_penalties.pickle")
+            with open(path, 'rb') as f:
+                edge_penalties = pickle.load(f)
+
+            futures = [
+                process_single_penalty.remote(
+                    penalty, dataset, classes, prefix, current_mode, edge_penalties
+                )
+                for penalty in penalties
+            ]
+            
+            for future, penalty in zip(futures, penalties):
+                result = ray.get(future)
+                key = f"{penalty}_{current_mode}"
+                results[key] = result.get(key, 0.0)
+
+        return results
+
+    except Exception as e:
+        logging.error(f"Main error: {str(e)}")
+        return {}
+    finally:
+        ray.shutdown()

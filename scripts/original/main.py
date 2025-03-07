@@ -1,6 +1,7 @@
 import yaml
 import pickle
 import shutil
+import time
 from pathlib import Path
 from argparse import ArgumentParser, ArgumentDefaultsHelpFormatter
 
@@ -14,16 +15,18 @@ from graph_pattern_visualize import graph_pattern_visualize_iterator
 
 def do_operations(root, config, dataset='all', mode='concepts', weighting='yes', graph_pattern_reconstruction='yes', visualization='no'):
 
-    if dataset == 'all':
-        if graph_pattern_reconstruction == 'yes':
-            print("Reconstructing graph patterns...")
-            graph_pattern_reconstruction_iterator(config['ten_newsgroups_classes'], str(root) + '/' + config['ten_newsgroups_data_prefix'], mode)
-            graph_pattern_reconstruction_iterator(config['bbcsport_classes'], str(root) + '/' + config['bbcsport_data_prefix'], mode)
+    start = time.time()
 
-        if weighting == 'yes':
-            print("Weighting graph patterns...")
-            graph_pattern_weighting_iterator('ten_newsgroups', config['ten_newsgroups_classes'], str(root) + '/' + config['ten_newsgroups_data_prefix'], mode)
-            graph_pattern_weighting_iterator('bbcsport', config['bbcsport_classes'], str(root) + '/' + config['bbcsport_data_prefix'], mode)
+    if dataset == 'all':
+        # if graph_pattern_reconstruction == 'yes':
+        #     print("Reconstructing graph patterns...")
+        #     graph_pattern_reconstruction_iterator(config['ten_newsgroups_classes'], str(root) + '/' + config['ten_newsgroups_data_prefix'], mode)
+        #     graph_pattern_reconstruction_iterator(config['bbcsport_classes'], str(root) + '/' + config['bbcsport_data_prefix'], mode)
+
+        # if weighting == 'yes':
+        #     print("Weighting graph patterns...")
+        #     graph_pattern_weighting_iterator('ten_newsgroups', config['ten_newsgroups_classes'], str(root) + '/' + config['ten_newsgroups_data_prefix'], mode)
+        #     graph_pattern_weighting_iterator('bbcsport', config['bbcsport_classes'], str(root) + '/' + config['bbcsport_data_prefix'], mode)
 
         ten_newsgroups_results = graph_pattern_scoring_iterator('ten_newsgroups', config['ten_newsgroups_classes'], str(root) + '/' + config['ten_newsgroups_data_prefix'], mode)
         bbcsport_results = graph_pattern_scoring_iterator('bbcsport', config['bbcsport_classes'], str(root) + '/' + config['bbcsport_data_prefix'], mode)
@@ -45,9 +48,12 @@ def do_operations(root, config, dataset='all', mode='concepts', weighting='yes',
 
         construct_results_dataframe(str(root), config)
 
-    if visualization == 'yes':
-        graph_pattern_reconstruction_iterator(config['example_classes'], str(root) + '/' + config['example_data_prefix'], mode)
-        graph_pattern_visualize_iterator(config['example_classes'], str(root) + '/' + config['example_data_prefix'], mode)
+    # if visualization == 'yes':
+    #     graph_pattern_reconstruction_iterator(config['example_classes'], str(root) + '/' + config['example_data_prefix'], mode)
+    #     graph_pattern_visualize_iterator(config['example_classes'], str(root) + '/' + config['example_data_prefix'], mode)
+
+    end = time.time()
+    print("Execution time:", end - start)
 
 
 if __name__ == '__main__':

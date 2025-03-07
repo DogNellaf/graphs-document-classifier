@@ -1,7 +1,11 @@
 import ray
 import yaml
 import pickle
+import time
+import multiprocessing
 import shutil
+import logging
+import torch
 from pathlib import Path
 from argparse import ArgumentParser, ArgumentDefaultsHelpFormatter
 
@@ -14,7 +18,20 @@ from graph_pattern_weighting import weight_graph_pattern
 from graph_pattern_scoring import score_graph_pattern
 from graph_pattern_visualize import graph_pattern_visualize_iterator
 
-ray.init()
+ray.init(
+    logging_level=logging.DEBUG,
+    num_cpus=10,
+    num_gpus=torch.cuda.device_count(),
+    # _system_config={
+    #     "max_io_workers": 20
+    # },
+    log_to_driver=True
+)
+torch.backends.cudnn.benchmark = True
+
+print(
+    ray.available_resources()
+)
 
 def save_result(root, filename, dir, results):
 
@@ -28,47 +45,46 @@ def save_result(root, filename, dir, results):
 
 def do_operations(root, config, dataset='all', mode='concepts', weighting='yes', graph_pattern_reconstruction='yes', visualization='no'):
 
-    futures = []
+    start = time.time()
+
     if dataset == 'all':
         if graph_pattern_reconstruction == 'yes':
             print("Reconstructing graph patterns...")
-            futures.extend(
-                [
-                    reconstruct_graph_pattern.remote(
-                        config['ten_newsgroups_classes'],
-                        join(str(root), config['ten_newsgroups_data_prefix']),
-                        mode
-                    ),
+            futures = [
+                reconstruct_graph_pattern.remote(
+                    config['ten_newsgroups_classes'],
+                    join(str(root), config['ten_newsgroups_data_prefix']),
+                    mode
+                ),
 
-                    reconstruct_graph_pattern.remote(
-                        config['bbcsport_classes'],
-                        join(str(root), config['bbcsport_data_prefix']),
-                        mode
-                    )
-                ]
-            )
+                reconstruct_graph_pattern.remote(
+                    config['bbcsport_classes'],
+                    join(str(root), config['bbcsport_data_prefix']),
+                    mode
+                )
+            ]
+
+            ray.get(futures)
 
         if weighting == 'yes':
             print("Weighting graph patterns...")
-            futures.extend(
-                [
-                    weight_graph_pattern.remote(
-                        'ten_newsgroups',
-                        config['ten_newsgroups_classes'],
-                        join(str(root), config['ten_newsgroups_data_prefix']),
-                        mode
-                    ),
+            futures = [
+                weight_graph_pattern.remote(
+                    'ten_newsgroups',
+                    config['ten_newsgroups_classes'],
+                    join(str(root), config['ten_newsgroups_data_prefix']),
+                    mode
+                ),
 
-                    weight_graph_pattern.remote(
-                        'bbcsport',
-                        config['bbcsport_classes'],
-                        join(str(root), config['bbcsport_data_prefix']),
-                        mode
-                    )
-                ]
-            )
+                weight_graph_pattern.remote(
+                    'bbcsport',
+                    config['bbcsport_classes'],
+                    join(str(root), config['bbcsport_data_prefix']),
+                    mode
+                )
+            ]
 
-        ray.get(futures)
+            ray.get(futures)
 
         futures = [
             score_graph_pattern.remote(
@@ -120,6 +136,9 @@ def do_operations(root, config, dataset='all', mode='concepts', weighting='yes',
             mode
         )
     
+    end = time.time()
+    print("Execution time:", end - start)
+
     construct_results_dataframe(root, config)
 
 if __name__ == '__main__':
